@@ -282,12 +282,7 @@ function saveToGist() {
       console.log('✅ Board saved to Gist');
     }
   })
-    if (!res.ok) {
-      alert('❌ Failed to save to Gist');
-    } else {
-      console.log('✅ Board saved to Gist');
-    }
-  })
+    // Removed duplicate block
   .catch(err => {
     console.error('Error saving to Gist:', err);
     alert('❌ Error saving to Gist');
