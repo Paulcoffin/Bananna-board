@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Banana Board</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+      background: #fdf6e3;
+      transition: background 0.3s;
+    }
+    .dark-mode {
+      background: #1e1e1e;
+      color: #eee;
+    }
+    .controls {
+      margin-bottom: 20px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .board {
+      display: flex;
+      gap: 20px;
+      width: 90%;
+    }
+    .column {
+      flex: 1;
+      background: #fefecd;
+      border: 2px solid #f4d35e;
+      border-radius: 10px;
+      padding: 10px;
+      min-height: 300px;
+    }
+    .dark-mode .column {
+      background: #333;
+      border-color: #999;
+    }
+    .column h2 {
+      text-align: center;
+    }
+    .note {
+      background: #fff475;
+      padding: 10px;
+      border-radius: 5px;
+      margin-bottom: 10px;
+      cursor: grab;
+      position: relative;
+    }
+    .dark-mode .note {
+      background: #555;
+      color: #fdf6e3;
+    }
+    .add-btn, .toggle-btn, .import-btn, .export-btn {
+      padding: 5px 10px;
+    }
+    .delete-btn {
+      position: absolute;
+      top: 2px;
+      right: 5px;
+      background: red;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .note-content {
+      min-height: 50px;
+      margin-bottom: 5px;
+    }
+    .tag-select, .due-date {
+      display: block;
+      margin-top: 5px;
+      font-size: 0.85em;
+    }
+    #searchBox {
+      padding: 5px;
+      font-size: 1em;
+      width: 200px;
+    }
+    .checkboxes {
+      margin-top: 5px;
+    }
+    .file-preview img {
+      max-width: 100%;
+      margin-top: 5px;
+    }
+    #autosave-status {
+      font-size: 0.9em;
+      margin-top: 5px;
+      color: gray;
+    }
+  </style>
+</head>
+<body>
+  <div class="controls">
+    <button class="toggle-btn" onclick="toggleDarkMode()">Toggle Dark Mode</button>
+    <button class="export-btn" onclick="exportBoard()">Export</button>
+    <button class="import-btn" onclick="importBoard()">Import</button>
+    <input type="file" id="import-file" style="display:none" accept=".json">
+    <input type="text" id="searchBox" oninput="filterNotes()" placeholder="Search notes...">
+  </div>
+  <div id="autosave-status">Autosaved at <span id="last-saved-time">never</span></div>
+  <div class="board">
+    <div class="column" ondrop="drop(event)" ondragover="allowDrop(event)" data-column="todo">
+      <h2>To Do</h2>
+      <button class="add-btn" onclick="addNote(this)">Add</button>
+    </div>
+    <div class="column" ondrop="drop(event)" ondragover="allowDrop(event)" data-column="doing">
+      <h2>In Progress</h2>
+      <button class="add-btn" onclick="addNote(this)">Add</button>
+    </div>
+    <div class="column" ondrop="drop(event)" ondragover="allowDrop(event)" data-column="done">
+      <h2>Done</h2>
+      <button class="add-btn" onclick="addNote(this)">Add</button>
+    </div>
+  </div>
+  <div class="controls">
+    <button onclick="saveToGist()">Save to Gist</button>
+    <button onclick="loadFromGist()">Load from Gist</button>
+    <input type="text" id="tokenBox" placeholder="Paste GitHub token here" style="width:300px;">
+    <button onclick="saveTokenFromInput()">Set Token</button>
+    <span id="token-status"></span>
+  </div>
+<script>
+// Full JavaScript logic inserted here
+const GIST_ID = '2314b80c35763406a8c6473f1a447800';
+const GIST_FILENAME = 'banana-board-data.json';
+let dragged;
+
+function getGitHubToken() {
+  let token = localStorage.getItem('githubToken');
+  const input = document.getElementById('tokenBox');
+  const status = document.getElementById('token-status');
+  if (!token && input && input.value) {
+    token = input.value.trim();
+    localStorage.setItem('githubToken', token);
+  }
+  if (status) {
+    status.textContent = token ? '🔐 Token active' : '⚠️ No token set';
+  }
+  return token;
+}
+
+function saveTokenFromInput() {
+  const input = document.getElementById('tokenBox');
+  const token = input.value.trim();
+  const status = document.getElementById('token-status');
+  if (token) {
+    localStorage.setItem('githubToken', token);
+    if (status) status.textContent = '🔐 Token saved';
+    alert('✅ Token saved! You can now sync.');
+  } else {
+    if (status) status.textContent = '⚠️ Invalid token';
+    alert('❌ Please enter a valid token.');
+  }
+}
+
+function allowDrop(ev) {
+  ev.preventDefault();
+  const target = ev.currentTarget;
+  if (target.classList.contains('column') && dragged) {
+    const afterElement = getDragAfterElement(target, ev.clientY);
+    if (afterElement == null) {
+      target.appendChild(dragged);
+    } else {
+      target.insertBefore(dragged, afterElement);
+    }
+  }
+}
+
+function drag(ev) {
+  dragged = ev.target;
+}
+
+function drop(ev) {
+  ev.preventDefault();
+  dragged = null;
+  saveBoard();
+}
+
+function getDragAfterElement(container, y) {
+  const elements = [...container.querySelectorAll('.note:not(.dragging)')];
+  return elements.reduce((closest, child) => {
+    const box = child.getBoundingClientRect();
+    const offset = y - box.top - box.height / 2;
+    if (offset < 0 && offset > closest.offset) {
+      return { offset, element: child };
+    } else {
+      return closest;
+    }
+  }, { offset: Number.NEGATIVE_INFINITY }).element;
+}
+
+function toggleDarkMode() {
+  document.body.classList.toggle('dark-mode');
+}
+
+function updateSavedTime() {
+  const time = new Date().toLocaleTimeString();
+  document.getElementById("last-saved-time").textContent = time;
+}
+
+function saveBoard() {
+  const data = {};
+  document.querySelectorAll('.column').forEach(col => {
+    const key = col.dataset.column;
+    data[key] = Array.from(col.querySelectorAll('.note')).map(note => {
+      const content = note.querySelector('.note-content').innerText.trim();
+      const tag = note.querySelector('.tag-select').value;
+      const due = note.querySelector('.due-date').value;
+      const checks = Array.from(note.querySelectorAll('.checkboxes > div')).map(row => ({
+        done: row.querySelector('input[type="checkbox"]').checked,
+        label: row.querySelector('input[type="text"]').value
+      }));
+      const img = note.querySelector('.file-preview img');
+      const image = img ? img.src : '';
+      return { text: content, tag, due, checks, image };
+    });
+  });
+  localStorage.setItem('bananaBoard', JSON.stringify(data));
+  updateSavedTime();
+  saveToGist();
+}
+
+function loadBoard() {
+  const localData = JSON.parse(localStorage.getItem('bananaBoard')) || {};
+  Object.entries(localData).forEach(([key, notes]) => {
+    const col = document.querySelector(`.column[data-column='${key}']`);
+    notes.forEach(noteData => {
+      const note = createNote(noteData);
+      col.appendChild(note);
+    });
+  });
+  updateSavedTime();
+  const token = localStorage.getItem('githubToken');
+  if (token) loadFromGist();
+}
+
+function saveToGist() {
+  const token = getGitHubToken();
+  if (!token) return;
+  const data = localStorage.getItem('bananaBoard');
+  fetch(`https://api.github.com/gists/${GIST_ID}`, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': 'token ' + token,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      files: {
+        [GIST_FILENAME]: {
+          content: data
+        }
+      }
+    })
+  })
+  .then(res => {
+    if (!res.ok) {
+      alert('❌ Failed to save to Gist');
+    } else {
+      console.log('✅ Board saved to Gist');
+    }
+  })
+  .catch(err => {
+    console.error('Error saving to Gist:', err);
+    alert('❌ Error saving to Gist');
+  });
+}
+
+function loadFromGist() {
+  const token = getGitHubToken();
+  if (!token) return;
+  fetch(`https://api.github.com/gists/${GIST_ID}`, {
+    headers: {
+      'Authorization': 'token ' + token
+    }
+  })
+  .then(res => res.json())
+  .then(data => {
+    const content = data.files[GIST_FILENAME].content;
+    localStorage.setItem('bananaBoard', content);
+    document.querySelectorAll('.note').forEach(n => n.remove());
+    const parsed = JSON.parse(content);
+    Object.entries(parsed).forEach(([key, notes]) => {
+      const col = document.querySelector(`.column[data-column='${key}']`);
+      notes.forEach(noteData => {
+        const note = createNote(noteData);
+        col.appendChild(note);
+      });
+    });
+    updateSavedTime();
+    console.log('✅ Board loaded from GitHub Gist');
+  })
+  .catch(err => {
+    console.error('❌ Failed to load from Gist:', err);
+    alert('❌ Failed to load from Gist');
+  });
+}
+
+function exportBoard() {
+  const data = localStorage.getItem('bananaBoard');
+  const blob = new Blob([data], { type: 'application/json' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'banana_board.json';
+  link.click();
+}
+
+function importBoard() {
+  document.getElementById('import-file').click();
+}
+
+document.getElementById('import-file').addEventListener('change', function() {
+  const file = this.files[0];
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      localStorage.setItem('bananaBoard', e.target.result);
+      document.querySelectorAll('.note').forEach(n => n.remove());
+      loadBoard();
+      filterNotes();
+    } catch {
+      alert('Invalid file format');
+    }
+  };
+  reader.readAsText(file);
+});
+
+function filterNotes() {
+  const term = document.getElementById('searchBox').value.toLowerCase();
+  document.querySelectorAll('.note').forEach(note => {
+    const content = note.querySelector('.note-content').innerText.toLowerCase();
+    note.style.display = content.includes(term) ? '' : 'none';
+  });
+}
+
+function addNote(btn) {
+  const note = createNote({ text: '', tag: '', due: '', checks: [], image: '' });
+  btn.parentElement.appendChild(note);
+  saveBoard();
+}
+
+function createNote({ text, tag, due, checks, image }) {
+  const note = document.createElement('div');
+  note.className = 'note';
+  note.draggable = true;
+  note.ondragstart = drag;
+  note.addEventListener('dragend', () => saveBoard());
+
+  const content = document.createElement('div');
+  content.className = 'note-content';
+  content.contentEditable = true;
+  content.textContent = text;
+  content.oninput = saveBoard;
+
+  const del = document.createElement('button');
+  del.className = 'delete-btn';
+  del.textContent = 'x';
+  del.onclick = function(e) {
+    e.stopPropagation();
+    note.remove();
+    saveBoard();
+  };
+
+  const tagSelect = document.createElement('select');
+  tagSelect.className = 'tag-select';
+  ['','Red','Blue','Green','Yellow'].forEach(color => {
+    const opt = document.createElement('option');
+    opt.value = color.toLowerCase();
+    opt.textContent = color;
+    tagSelect.appendChild(opt);
+  });
+  tagSelect.value = tag || '';
+  tagSelect.onchange = () => {
+    note.style.backgroundColor = tagSelect.value || '#fff475';
+    saveBoard();
+  };
+  if (tag) note.style.backgroundColor = tag;
+
+  const dueDate = document.createElement('input');
+  dueDate.type = 'date';
+  dueDate.className = 'due-date';
+  dueDate.value = due || '';
+  dueDate.onchange = saveBoard;
+
+  const checklist = document.createElement('div');
+  checklist.className = 'checkboxes';
+  const addCheck = document.createElement('button');
+  addCheck.textContent = '+ Checklist';
+  addCheck.onclick = () => {
+    const item = document.createElement('div');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.onchange = saveBoard;
+    const label = document.createElement('input');
+    label.type = 'text';
+    label.placeholder = 'Subtask';
+    label.oninput = saveBoard;
+    label.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        label.blur();
+      }
+    });
+    item.append(checkbox, label);
+    checklist.appendChild(item);
+  };
+  (checks || []).forEach(({ done, label }) => {
+    const item = document.createElement('div');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = done;
+    checkbox.onchange = saveBoard;
+    const text = document.createElement('input');
+    text.type = 'text';
+    text.value = label;
+    text.oninput = saveBoard;
+    text.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        text.blur();
+      }
+    });
+    item.append(checkbox, text);
+    checklist.appendChild(item);
+  });
+
+  const imageInput = document.createElement('input');
+  imageInput.type = 'file';
+  imageInput.accept = 'image/*';
+  imageInput.onchange = () => {
+    const file = imageInput.files[0];
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = note.querySelector('.file-preview img') || document.createElement('img');
+      img.src = reader.result;
+      if (!note.querySelector('.file-preview')) {
+        const preview = document.createElement('div');
+        preview.className = 'file-preview';
+        preview.appendChild(img);
+        note.appendChild(preview);
+      } else {
+        note.querySelector('.file-preview').appendChild(img);
+      }
+      saveBoard();
+    };
+    if (file) reader.readAsDataURL(file);
+  };
+
+  note.appendChild(del);
+  note.appendChild(content);
+  note.appendChild(tagSelect);
+  note.appendChild(dueDate);
+  note.appendChild(addCheck);
+  note.appendChild(checklist);
+  note.appendChild(imageInput);
+
+  if (image) {
+    const img = document.createElement('img');
+    img.src = image;
+    const preview = document.createElement('div');
+    preview.className = 'file-preview';
+    preview.appendChild(img);
+    note.appendChild(preview);
+  }
+
+  return note;
+}
+
+loadBoard();
+</script>
+</script>
+</body>
+</html>
