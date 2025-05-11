@@ -273,6 +273,16 @@ function saveToGist() {
   })
   .then(res => {
     if (!res.ok) {
+      return res.json().then(errData => {
+        console.error('GitHub error:', errData);
+        alert('❌ Failed to save to Gist: ' + (errData.message || 'unknown error'));
+      });
+    } else {
+      alert('✅ Board saved to Gist');
+      console.log('✅ Board saved to Gist');
+    }
+  })
+    if (!res.ok) {
       alert('❌ Failed to save to Gist');
     } else {
       console.log('✅ Board saved to Gist');
