@@ -98,7 +98,7 @@
     }
   </style>
 </head>
-<body>
+<body onload="checkPassword()">
   <div class="controls">
     <button class="toggle-btn" onclick="toggleDarkMode()">Toggle Dark Mode</button>
     <button class="export-btn" onclick="exportBoard()">Export</button>
@@ -129,6 +129,16 @@
     <span id="token-status"></span>
   </div>
 <script>
+function checkPassword() {
+  const correctPassword = "banana123";
+  const entered = localStorage.getItem('bananaBoardPass') || prompt("🔐 Enter password to access your board:");
+  if (entered === correctPassword) {
+    localStorage.setItem('bananaBoardPass', entered);
+  } else {
+    document.body.innerHTML = '<h1 style="text-align:center; margin-top:20%">🚫 Access Denied</h1>';
+  }
+}
+
 // Full JavaScript logic inserted here
 const GIST_ID = '2314b80c35763406a8c6473f1a447800';
 const GIST_FILENAME = 'banana-board-data.json';
